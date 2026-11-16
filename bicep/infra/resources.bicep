@@ -99,6 +99,9 @@ param vnetName string = ''
 @description('Use an existing Virtual Network instead of creating a new one.')
 param useExistingVnet bool = false
 
+@description('Provision dedicated StandardV2/PremiumV2 gateway, private endpoint and Logic App subnets in an existing VNet. These subnet properties are managed by this deployment.')
+param manageExistingVnetSubnets bool = false
+
 @description('Resource group containing the existing VNet (only used when useExistingVnet is true).')
 param existingVnetRG string = ''
 
@@ -805,6 +808,25 @@ module vnet './modules/networking/vnet.bicep' = if(!useExistingVnet) {
   ]
 }
 
+module existingVnetSubnets './modules/networking/existing-vnet-subnets.bicep' = if (useExistingVnet && manageExistingVnetSubnets) {
+  name: 'existing-vnet-subnets'
+  scope: resourceGroup(existingVnetRG)
+  params: {
+    vnetName: vnetName
+    location: location
+    apimSku: apimSku
+    apimSubnetName: !empty(apimSubnetName) ? apimSubnetName : 'snet-apim'
+    apimSubnetPrefix: apimSubnetPrefix
+    apimNsgName: !empty(apimNsgName) ? apimNsgName : 'nsg-apim-${resourceToken}'
+    privateEndpointSubnetName: !empty(privateEndpointSubnetName) ? privateEndpointSubnetName : 'snet-private-endpoint'
+    privateEndpointSubnetPrefix: privateEndpointSubnetPrefix
+    functionAppSubnetName: !empty(functionAppSubnetName) ? functionAppSubnetName : 'snet-functionapp'
+    functionAppSubnetPrefix: functionAppSubnetPrefix
+    enableFunctionAppSubnet: enableUsageReporting
+    tags: tags
+  }
+}
+
 module vnetExisting './modules/networking/vnet-existing.bicep' = if(useExistingVnet) {
   name: 'vnetExisting'
   params: {
@@ -818,6 +840,7 @@ module vnetExisting './modules/networking/vnet-existing.bicep' = if(useExistingV
   }
   dependsOn: [
     dnsDeployment
+    existingVnetSubnets
   ]
 }
 

@@ -102,6 +102,9 @@ param vnetName string = ''
 @description('Use an existing Virtual Network instead of creating a new one.')
 param useExistingVnet bool = false
 
+@description('Provision dedicated StandardV2/PremiumV2 gateway, private endpoint and Logic App subnets in an existing VNet. These subnet properties are managed by this deployment; existing defaults only reference subnets.')
+param manageExistingVnetSubnets bool = false
+
 @description('Resource group containing the existing VNet (only used when useExistingVnet is true).')
 param existingVnetRG string = ''
 
@@ -615,6 +618,7 @@ module resources './resources.bicep' = {
     redisCacheName: redisCacheName
     vnetName: vnetName
     useExistingVnet: useExistingVnet
+    manageExistingVnetSubnets: manageExistingVnetSubnets
     existingVnetRG: existingVnetRG
     apimSubnetName: apimSubnetName
     privateEndpointSubnetName: privateEndpointSubnetName
