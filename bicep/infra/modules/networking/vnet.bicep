@@ -14,6 +14,7 @@ param privateEndpointSubnetAddressPrefix string
 param functionAppSubnetAddressPrefix string
 param isAPIMV2SKU bool
 param tags object = {}
+param enableFunctionAppSubnet bool = true
 
 @description('Enable provisioning of the AI Foundry agent network injection subnet (delegated to Microsoft.App/environments).')
 param enableAgentSubnet bool = true
@@ -153,7 +154,7 @@ resource privateEndpointNsg 'Microsoft.Network/networkSecurityGroups@2020-07-01'
   }
 }
 
-resource functionAppNsg 'Microsoft.Network/networkSecurityGroups@2020-07-01' = {
+resource functionAppNsg 'Microsoft.Network/networkSecurityGroups@2020-07-01' = if (enableFunctionAppSubnet) {
   name: functionAppNsgName
   location: location
   tags: union(tags, { 'azd-service-name': functionAppNsgName })
@@ -269,7 +270,7 @@ resource virtualNetwork 'Microsoft.Network/virtualNetworks@2026-01-01' = {
     ]
   }
 
-  resource functionAppSubnet 'subnets' = {
+  resource functionAppSubnet 'subnets' = if (enableFunctionAppSubnet) {
     name: functionAppSubnetName
     properties: {
       addressPrefix: functionAppSubnetAddressPrefix
@@ -316,6 +317,7 @@ resource virtualNetwork 'Microsoft.Network/virtualNetworks@2026-01-01' = {
       ]
     }
     dependsOn: [
+      virtualNetwork::privateEndpointSubnet
       virtualNetwork::functionAppSubnet
     ]
   }
@@ -339,8 +341,8 @@ output apimSubnetName string = virtualNetwork::apimSubnet.name
 output apimSubnetId string = virtualNetwork::apimSubnet.id
 output privateEndpointSubnetName string = virtualNetwork::privateEndpointSubnet.name
 output privateEndpointSubnetId string = virtualNetwork::privateEndpointSubnet.id
-output functionAppSubnetName string = virtualNetwork::functionAppSubnet.name
-output functionAppSubnetId string = virtualNetwork::functionAppSubnet.id
+output functionAppSubnetName string = enableFunctionAppSubnet ? virtualNetwork::functionAppSubnet.name : ''
+output functionAppSubnetId string = enableFunctionAppSubnet ? virtualNetwork::functionAppSubnet.id : ''
 output agentSubnetName string = enableAgentSubnet ? virtualNetwork::agentSubnet.name : ''
 output agentSubnetId string = enableAgentSubnet ? virtualNetwork::agentSubnet.id : ''
 output location string = virtualNetwork.location

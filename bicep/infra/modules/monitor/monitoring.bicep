@@ -13,6 +13,7 @@ param location string = resourceGroup().location
 param tags object = {}
 
 param createDashboard bool
+param enableUsageReporting bool = true
 
 // Networking
 param usePrivateLinkScope bool = true
@@ -80,7 +81,7 @@ module apimApplicationInsights 'applicationinsights.bicep' = {
 }
 
 // Function App Insights
-module functionApplicationInsights 'applicationinsights.bicep' = {
+module functionApplicationInsights 'applicationinsights.bicep' = if (enableUsageReporting) {
   name: 'func-application-insights'
   params: {
     name: functionApplicationInsightsName
@@ -134,9 +135,9 @@ output apimApplicationInsightsName string = apimApplicationInsights.outputs.name
 output apimApplicationInsightsConnectionString string = apimApplicationInsights.outputs.connectionString
 output apimApplicationInsightsInstrumentationKey string = apimApplicationInsights.outputs.instrumentationKey
 output apimApplicationInsightsId string = apimApplicationInsights.outputs.id
-output funcApplicationInsightsName string = functionApplicationInsights.outputs.name
-output funcApplicationInsightsConnectionString string = functionApplicationInsights.outputs.connectionString
-output funcApplicationInsightsInstrumentationKey string = functionApplicationInsights.outputs.instrumentationKey
+output funcApplicationInsightsName string = enableUsageReporting ? functionApplicationInsights!.outputs.name : ''
+output funcApplicationInsightsConnectionString string = enableUsageReporting ? functionApplicationInsights!.outputs.connectionString : ''
+output funcApplicationInsightsInstrumentationKey string = enableUsageReporting ? functionApplicationInsights!.outputs.instrumentationKey : ''
 output foundryApplicationInsightsName string = foundryApplicationInsights.outputs.name
 output foundryApplicationInsightsConnectionString string = foundryApplicationInsights.outputs.connectionString
 output foundryApplicationInsightsId string = foundryApplicationInsights.outputs.id

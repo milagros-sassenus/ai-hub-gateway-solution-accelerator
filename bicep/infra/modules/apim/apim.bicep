@@ -27,6 +27,9 @@ param eventHubEndpoint string
 param eventHubPIIName string
 param eventHubPIIEndpoint string
 
+@description('Enable Event Hub usage and PII-state reporting; independent of PII redaction and APIM diagnostics.')
+param enableUsageReporting bool = true
+
 param enableAzureAISearch bool = false
 param aiSearchInstances array
 
@@ -775,6 +778,7 @@ module policyFragments './policy-fragments.bicep' = {
     enablePIIAnonymization: enablePIIAnonymization
     enableAIModelInference: enableAIModelInference
     enableUnifiedAiApi: enableUnifiedAiApi
+    enableUsageReporting: enableUsageReporting
   }
   dependsOn: [
     apiopenAiApiClientNamedValue
@@ -928,7 +932,7 @@ resource apimAppInsights 'Microsoft.ApiManagement/service/diagnostics@2024-05-01
   }
 }
 
-resource ehUsageLogger 'Microsoft.ApiManagement/service/loggers@2022-08-01' = {
+resource ehUsageLogger 'Microsoft.ApiManagement/service/loggers@2022-08-01' = if (enableUsageReporting) {
   name: 'usage-eventhub-logger'
   parent: apimService
   properties: {
@@ -942,7 +946,7 @@ resource ehUsageLogger 'Microsoft.ApiManagement/service/loggers@2022-08-01' = {
   }
 }
 
-resource ehPIIUsageLogger 'Microsoft.ApiManagement/service/loggers@2022-08-01' = if (enablePIIAnonymization) {
+resource ehPIIUsageLogger 'Microsoft.ApiManagement/service/loggers@2022-08-01' = if (enablePIIAnonymization && enableUsageReporting) {
   name: 'pii-usage-eventhub-logger'
   parent: apimService
   properties: {

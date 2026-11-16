@@ -1,6 +1,7 @@
 param name string
 param location string = resourceGroup().location
 param tags object = {}
+param enableUsageReporting bool = true
 
 var cognitiveServicesOpenAIUserRoleDefinitionId = resourceId('Microsoft.Authorization/roleDefinitions', '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd')
 var cognitiveServicesUserRoleDefinitionId = resourceId('Microsoft.Authorization/roleDefinitions', 'a97b65f3-24c7-4388-baec-2e87135dc908')
@@ -39,7 +40,7 @@ resource cognitiveServicesOpenAIUserRoleAssignment 'Microsoft.Authorization/role
 }
 
 // Assign to Azure Event Hubs Data Sender role to the user-defined managed identity used by workloads
-resource eventHubsDataSenderRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource eventHubsDataSenderRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableUsageReporting) {
   name: guid(managedIdentity.id, eventHubsDataSenderRoleDefinitionId)
   scope: resourceGroup()
   properties: {

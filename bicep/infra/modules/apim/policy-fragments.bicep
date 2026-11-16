@@ -22,6 +22,9 @@ param enableAIModelInference bool = true
 @description('Enable Unified AI API features')
 param enableUnifiedAiApi bool = true
 
+@description('Enable Event Hub usage and PII-state reporting. Stable fragment names are retained when reporting is disabled.')
+param enableUsageReporting bool = true
+
 // ------------------
 //    RESOURCES
 // ------------------
@@ -34,8 +37,8 @@ resource aiUsagePolicyFragment 'Microsoft.ApiManagement/service/policyFragments@
   parent: apimService
   name: 'ai-usage'
   properties: {
-    description: 'Tracks usage of all AI-related APIs with flexible dimensions for models, features, and more'
-    value: loadTextContent('./policies/frag-ai-usage.xml')
+    description: enableUsageReporting ? 'Tracks usage of all AI-related APIs with flexible dimensions for models, features, and more' : 'Usage reporting disabled for this deployment'
+    value: enableUsageReporting ? loadTextContent('./policies/frag-ai-usage.xml') : '<fragment />'
     format: 'rawxml'
   }
 }
@@ -121,8 +124,8 @@ resource piiStateSavingPolicyFragment 'Microsoft.ApiManagement/service/policyFra
   parent: apimService
   name: 'pii-state-saving'
   properties: {
-    description: 'Saves the state of personally identifiable information (PII) for testing & validation purposes'
-    value: loadTextContent('./policies/frag-pii-state-saving.xml')
+    description: enableUsageReporting ? 'Saves the state of personally identifiable information (PII) for testing & validation purposes' : 'PII state reporting disabled; anonymization and deanonymization remain available'
+    value: enableUsageReporting ? loadTextContent('./policies/frag-pii-state-saving.xml') : '<fragment />'
     format: 'rawxml'
   }
 }

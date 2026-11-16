@@ -281,6 +281,9 @@ param enableAPICenter bool = true
 @description('Enable Azure Managed Redis (AMR). When true (default), the Redis resource and APIM cache integration are provisioned.')
 param enableManagedRedis bool = true
 
+@description('Deploy usage ingestion and reporting and its dedicated resources; retain APIM diagnostics.')
+param enableUsageReporting bool = true
+
 @description('Azure Monitor diagnostic log settings for inference APIs. Controls frontend/backend request/response headers, body bytes, and LLM-specific log settings.')
 param azureMonitorLogSettings object = {
   frontend: {
@@ -725,7 +728,7 @@ var existingOpenAiDnsZoneId = existingPrivateDnsZones.?openai ?? ''
 var existingRedisDnsZoneId = existingPrivateDnsZones.?redis ?? ''
 var existingLogicAppDnsZoneId = existingPrivateDnsZones.?logicApp ?? ''
 
-var createLogicAppDnsZone = logicAppUsePrivateEndpoint && !useExistingVnet && empty(existingLogicAppDnsZoneId) && empty(dnsZoneRG)
+var createLogicAppDnsZone = enableUsageReporting && logicAppUsePrivateEndpoint && !useExistingVnet && empty(existingLogicAppDnsZoneId) && empty(dnsZoneRG)
 var logicAppPrivateDnsZoneResourceId = !empty(existingLogicAppDnsZoneId) ? existingLogicAppDnsZoneId : (!empty(dnsZoneRG) ? resourceId(!empty(dnsSubscriptionId) ? dnsSubscriptionId : subscription().subscriptionId, dnsZoneRG, 'Microsoft.Network/privateDnsZones', logicAppPrivateDnsZoneName) : (createLogicAppDnsZone ? resourceId('Microsoft.Network/privateDnsZones', logicAppPrivateDnsZoneName) : ''))
 
 // Existing DNS zone resource IDs for AI Foundry (for BYO network scenarios)
@@ -744,12 +747,6 @@ var baseDnsZoneNames = [
   openAiPrivateDnsZoneName
   aiCogntiveServicesDnsZoneName
   keyVaultPrivateDnsZoneName
-  eventHubPrivateDnsZoneName 
-  cosmosDbPrivateDnsZoneName
-  storageBlobPrivateDnsZoneName
-  storageFilePrivateDnsZoneName
-  storageTablePrivateDnsZoneName
-  storageQueuePrivateDnsZoneName
   apimV2SkuDnsZoneName
   aiServicesDnsZoneName
   redisPrivateDnsZoneName
@@ -758,6 +755,14 @@ var baseDnsZoneNames = [
 // Only include optional DNS zones when their private connectivity is enabled
 var privateDnsZoneNames = concat(
   baseDnsZoneNames,
+  enableUsageReporting ? [
+    eventHubPrivateDnsZoneName
+    cosmosDbPrivateDnsZoneName
+    storageBlobPrivateDnsZoneName
+    storageFilePrivateDnsZoneName
+    storageTablePrivateDnsZoneName
+    storageQueuePrivateDnsZoneName
+  ] : [],
   useAzureMonitorPrivateLinkScope ? [monitorPrivateDnsZoneName] : [],
   createLogicAppDnsZone ? [logicAppPrivateDnsZoneName] : []
 )
@@ -780,6 +785,7 @@ module vnet './modules/networking/vnet.bicep' = if(!useExistingVnet) {
     privateEndpointNsgName: !empty(privateEndpointNsgName) ? privateEndpointNsgName : 'nsg-pe-${resourceToken}'
     functionAppSubnetName: !empty(functionAppSubnetName) ? functionAppSubnetName : 'snet-functionapp'
     functionAppNsgName: !empty(functionAppNsgName) ? functionAppNsgName : 'nsg-functionapp-${resourceToken}'
+    enableFunctionAppSubnet: enableUsageReporting
     enableAgentSubnet: foundryNetworkInjectionEnabled
     agentSubnetName: !empty(agentSubnetName) ? agentSubnetName : 'snet-agents'
     agentSubnetNsgName: !empty(agentSubnetNsgName) ? agentSubnetNsgName : 'nsg-agents-${resourceToken}'
@@ -806,6 +812,7 @@ module vnetExisting './modules/networking/vnet-existing.bicep' = if(useExistingV
     apimSubnetName: !empty(apimSubnetName) ? apimSubnetName : 'snet-apim'
     privateEndpointSubnetName: !empty(privateEndpointSubnetName) ? privateEndpointSubnetName : 'snet-private-endpoint'
     functionAppSubnetName: !empty(functionAppSubnetName) ? functionAppSubnetName : 'snet-functionapp'
+    enableFunctionAppSubnet: enableUsageReporting
     agentSubnetName: foundryNetworkInjectionEnabled ? agentSubnetName : ''
     vnetRG: existingVnetRG
   }
@@ -820,12 +827,13 @@ module apimManagedIdentity './modules/security/managed-identity-apim.bicep' = {
     name: !empty(apimIdentityName) ? apimIdentityName : '${abbrs.managedIdentityUserAssignedIdentities}apim-${resourceToken}'
     location: location
     tags: tags
+    enableUsageReporting: enableUsageReporting
   }
 }
 
 // The usage managed identity is created early (no dependency on Cosmos DB) so its principal has
 // time to replicate in AAD before the Cosmos SQL role assignment runs (see usageCosmosSqlRole).
-module usageManagedIdentity './modules/security/managed-identity-usage.bicep' = {
+module usageManagedIdentity './modules/security/managed-identity-usage.bicep' = if (enableUsageReporting) {
   name: 'logicapp-usage-managed-identity'
   params: {
     name: !empty(usageLogicAppIdentityName) ? usageLogicAppIdentityName : '${abbrs.managedIdentityUserAssignedIdentities}logicapp-${resourceToken}'
@@ -855,6 +863,7 @@ module monitoring './modules/monitor/monitoring.bicep' = {
     privateEndpointSubnetName: useExistingVnet ? vnetExisting.outputs.privateEndpointSubnetName : vnet.outputs.privateEndpointSubnetName
     applicationInsightsDnsZoneName: monitorPrivateDnsZoneName
     createDashboard: createAppInsightsDashboards
+    enableUsageReporting: enableUsageReporting
     dnsZoneRG: !useExistingVnet ? resourceGroup().name : dnsZoneRG
     dnsSubscriptionId: !empty(dnsSubscriptionId) ? dnsSubscriptionId : subscription().subscriptionId
     dnsZoneResourceId: existingMonitorDnsZoneId
@@ -930,7 +939,7 @@ module foundry 'modules/foundry/foundry.bicep' = if (existingAiFoundry == null) 
   }
 }
 
-module eventHub './modules/event-hub/event-hub.bicep' = {
+module eventHub './modules/event-hub/event-hub.bicep' = if (enableUsageReporting) {
   name: 'event-hub'
   params: {
     name: !empty(eventHubNamespaceName) ? eventHubNamespaceName : '${abbrs.eventHubNamespaces}${resourceToken}'
@@ -1009,10 +1018,11 @@ module apim './modules/apim/apim.bicep' = {
     clientAppId: resolvedEntraClientId
     tenantId: resolvedEntraTenantId
     audience: resolvedEntraAudience
-    eventHubName: eventHub.outputs.eventHubName
-    eventHubEndpoint: eventHub.outputs.eventHubEndpoint
-    eventHubPIIName: eventHub.outputs.eventHubPIIName
-    eventHubPIIEndpoint: eventHub.outputs.eventHubEndpoint
+    enableUsageReporting: enableUsageReporting
+    eventHubName: enableUsageReporting ? eventHub!.outputs.eventHubName : ''
+    eventHubEndpoint: enableUsageReporting ? eventHub!.outputs.eventHubEndpoint : ''
+    eventHubPIIName: enableUsageReporting ? eventHub!.outputs.eventHubPIIName : ''
+    eventHubPIIEndpoint: enableUsageReporting ? eventHub!.outputs.eventHubEndpoint : ''
     apimSubnetId: useExistingVnet ? vnetExisting.outputs.apimSubnetId : vnet.outputs.apimSubnetId
     aiLanguageServiceUrl: primaryFoundryEndpoint
     contentSafetyServiceUrl: primaryFoundryEndpoint
@@ -1060,7 +1070,7 @@ module keyVaultApimSystemRbac './modules/keyvault/keyvault-apim-system-rbac.bice
   }
 }
 
-module cosmosDb './modules/cosmos-db/cosmos-db.bicep' = {
+module cosmosDb './modules/cosmos-db/cosmos-db.bicep' = if (enableUsageReporting) {
   name: 'cosmos-db'
   params: {
     accountName: !empty(cosmosDbAccountName) ? cosmosDbAccountName : '${abbrs.documentDBDatabaseAccounts}${resourceToken}'
@@ -1083,21 +1093,21 @@ module cosmosDb './modules/cosmos-db/cosmos-db.bicep' = {
 // its own deployment (after both Cosmos DB and the managed identity exist) so the identity's
 // principal has replicated in AAD, avoiding the transient "principal ID was not found in the AAD
 // tenant" error that Cosmos DB raises when validating a freshly created principal.
-module usageCosmosSqlRole './modules/cosmos-db/cosmos-sql-role-assignment.bicep' = {
+module usageCosmosSqlRole './modules/cosmos-db/cosmos-sql-role-assignment.bicep' = if (enableUsageReporting) {
   name: 'logicapp-usage-cosmos-sql-role'
   params: {
-    cosmosDbAccountName: cosmosDb.outputs.cosmosDbAccountName
-    principalId: usageManagedIdentity.outputs.managedIdentityPrincipalId
+    cosmosDbAccountName: cosmosDb!.outputs.cosmosDbAccountName
+    principalId: usageManagedIdentity!.outputs.managedIdentityPrincipalId
   }
 }
 
-module storageAccount './modules/functionapp/storageaccount.bicep' = {
+module storageAccount './modules/functionapp/storageaccount.bicep' = if (enableUsageReporting) {
   name: 'storage'
   params: {
     location: location
     tags: tags
     storageAccountName: !empty(storageAccountName) ? storageAccountName : 'funcusage${resourceToken}'
-    functionAppManagedIdentityName: usageManagedIdentity.outputs.managedIdentityName
+    functionAppManagedIdentityName: usageManagedIdentity!.outputs.managedIdentityName
     vNetName: useExistingVnet ? vnetExisting.outputs.vnetName : vnet.outputs.vnetName
     privateEndpointSubnetName: useExistingVnet ? vnetExisting.outputs.privateEndpointSubnetName : vnet.outputs.privateEndpointSubnetName
     storageBlobDnsZoneName: storageBlobPrivateDnsZoneName
@@ -1119,14 +1129,14 @@ module storageAccount './modules/functionapp/storageaccount.bicep' = {
   }
 }
 
-module logicApp './modules/logicapp/logicapp.bicep' = {
+module logicApp './modules/logicapp/logicapp.bicep' = if (enableUsageReporting) {
   name: 'usageLogicApp'
   params: {
     location: location
     tags: tags
     logicAppName: !empty(usageProcessingLogicAppName) ? usageProcessingLogicAppName : '${abbrs.logicWorkflows}usage-${resourceToken}'
     azdserviceName: 'usageProcessingLogicApp'   
-    storageAccountName: storageAccount.outputs.storageAccountName
+    storageAccountName: storageAccount!.outputs.storageAccountName
     applicationInsightsName: monitoring.outputs.funcApplicationInsightsName
     skuFamily: 'WS'
     skuName: 'WS1'
@@ -1134,17 +1144,17 @@ module logicApp './modules/logicapp/logicapp.bicep' = {
     skuSize: 'WS1'
     skuTier: 'WorkflowStandard'
     isReserved: false
-    cosmosDbAccountName: cosmosDb.outputs.cosmosDbAccountName
-    eventHubName: eventHub.outputs.eventHubName
-    eventHubNamespaceName: eventHub.outputs.eventHubNamespaceName
-    cosmosDBDatabaseName: cosmosDb.outputs.cosmosDbDatabaseName
-    cosmosDBContainerConfigName: cosmosDb.outputs.cosmosDbStreamingExportConfigContainerName
-    cosmosDBContainerUsageName: cosmosDb.outputs.cosmosDbContainerName
-    cosmosDBContainerPIIName: cosmosDb.outputs.cosmosDbPiiUsageContainerName
-    cosmosDBContainerLLMUsageName: cosmosDb.outputs.cosmosDbLLMUsageContainerName
-    cosmosDBContainerMCPUsageName: cosmosDb.outputs.cosmosDbMcpUsageContainerName
-    cosmosDBContainerAgentUsageName: cosmosDb.outputs.cosmosDbAgentUsageContainerName
-    eventHubPIIName: eventHub.outputs.eventHubPIIName
+    cosmosDbAccountName: cosmosDb!.outputs.cosmosDbAccountName
+    eventHubName: eventHub!.outputs.eventHubName
+    eventHubNamespaceName: eventHub!.outputs.eventHubNamespaceName
+    cosmosDBDatabaseName: cosmosDb!.outputs.cosmosDbDatabaseName
+    cosmosDBContainerConfigName: cosmosDb!.outputs.cosmosDbStreamingExportConfigContainerName
+    cosmosDBContainerUsageName: cosmosDb!.outputs.cosmosDbContainerName
+    cosmosDBContainerPIIName: cosmosDb!.outputs.cosmosDbPiiUsageContainerName
+    cosmosDBContainerLLMUsageName: cosmosDb!.outputs.cosmosDbLLMUsageContainerName
+    cosmosDBContainerMCPUsageName: cosmosDb!.outputs.cosmosDbMcpUsageContainerName
+    cosmosDBContainerAgentUsageName: cosmosDb!.outputs.cosmosDbAgentUsageContainerName
+    eventHubPIIName: eventHub!.outputs.eventHubPIIName
     apimAppInsightsName: monitoring.outputs.apimApplicationInsightsName
     functionAppSubnetId: useExistingVnet ? vnetExisting.outputs.functionAppSubnetId : vnet.outputs.functionAppSubnetId
     logicAppUsePrivateEndpoint: logicAppUsePrivateEndpoint
@@ -1209,5 +1219,5 @@ output ENTRA_AUTH_ENABLED bool = entraAuth
 output ENTRA_CLIENT_ID string = resolvedEntraClientId
 output ENTRA_TENANT_ID string = resolvedEntraTenantId
 output ENTRA_AUDIENCE string = resolvedEntraAudience
-output COSMOS_DB_ACCOUNT_NAME string = cosmosDb.outputs.cosmosDbAccountName
-output EVENT_HUB_NAME string = eventHub.outputs.eventHubName
+output COSMOS_DB_ACCOUNT_NAME string = enableUsageReporting ? cosmosDb!.outputs.cosmosDbAccountName : ''
+output EVENT_HUB_NAME string = enableUsageReporting ? eventHub!.outputs.eventHubName : ''
