@@ -174,3 +174,13 @@ output foundryEndpoint string = createNew ? foundryNew.properties.endpoint : fou
 @description('Principal (object) ID of the AI Foundry system-assigned identity (empty for BYO accounts).')
 #disable-next-line BCP318
 output foundryPrincipalId string = createNew ? foundryNew.identity.principalId : ''
+
+@description('Foundry coordinates for environment discovery. BYO accounts do not imply an existing project or create one.')
+output extendedAIServicesConfig array = [
+  {
+    name: foundryName
+    location: foundryRef.location
+    cognitiveServiceName: foundryName
+    endpoint: createNew ? foundryNew!.properties.endpoint : foundryRef.properties.endpoint
+  }
+]

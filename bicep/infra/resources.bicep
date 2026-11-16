@@ -426,6 +426,16 @@ param aiSearchInstances array = [
   // }
 ]
 
+@description('Reference an existing Foundry without modifying its account, projects, models, networking or connections. Omit subscriptionId to use the deployment subscription.')
+param existingAiFoundry {
+  name: string
+  resourceGroupName: string
+  subscriptionId: string?
+}?
+
+@description('Complete APIM backend registrations for existing Foundry deployments; no models are provisioned.')
+param existingLlmBackendConfig array = []
+
 @description('AI Foundry instances configuration array. The first element (index 0) is the **primary** Foundry resource. The primary Foundry powers the APIM AI Gateway content safety and PII processing capabilities (via the AI Services unified endpoint) AND can also host LLM model deployments. Add more entries to deploy additional Foundry resources in different regions for additional LLM capacity / regional routing. All entries can host LLM deployments declared in aiFoundryModelsConfig. Each entry may optionally set `networkInjectionEnabled: true|false` to opt the specific Foundry resource into (or out of) agent network injection (delegated to Microsoft.App/environments). Per-instance values only take effect when the global `foundryNetworkInjectionEnabled` flag is also true. Note: agent subnet is regional - only enable injection for instances in the same region as the VNet, and only when the full Foundry Standard Agent BYO setup (Storage + AI Search + Cosmos DB + capabilityHost) is in place.')
 param aiFoundryInstances array = [
   {
@@ -657,7 +667,7 @@ var modelsGroupedByInstance = [for (instance, i) in aiFoundryInstances: {
  */
 
 // Dynamically generate LLM backend configuration from AI Foundry instances and models
-var llmBackendConfig = [for (instance, i) in aiFoundryInstances: {
+var generatedLlmBackendConfig = [for (instance, i) in aiFoundryInstances: {
   backendId: !empty(instance.name) ? '${instance.name}-${i}' : 'aif-${resourceToken}-${i}'
   backendType: 'ai-foundry'
   endpoint: 'https://${!empty(instance.name) ? instance.name : 'aif-${resourceToken}-${i}'}.cognitiveservices.azure.com/'
@@ -667,12 +677,13 @@ var llmBackendConfig = [for (instance, i) in aiFoundryInstances: {
   weight: 100
 }]
 
-var primaryFoundryName = !empty(aiFoundryInstances[0].name) ? aiFoundryInstances[0].name : 'aif-${resourceToken}-0'
+var llmBackendConfig = existingAiFoundry != null ? existingLlmBackendConfig : generatedLlmBackendConfig
+var primaryFoundryName = existingAiFoundry != null ? existingAiFoundry.name : (!empty(aiFoundryInstances[0].name) ? aiFoundryInstances[0].name : 'aif-${resourceToken}-0')
 // Primary Foundry endpoint - serves APIM AI Gateway as both:
 //   1. Backend URL for `content-safety-backend` (Content Safety API)
 //   2. Named-value `piiServiceUrl` (Language Service / PII detection API)
 // Both APIs are exposed on the AI Services account base endpoint.
-var primaryFoundryEndpoint = 'https://${primaryFoundryName}.cognitiveservices.azure.com/'
+var primaryFoundryEndpoint = existingAiFoundry != null ? existingFoundry!.outputs.foundryEndpoint : 'https://${primaryFoundryName}.cognitiveservices.azure.com/'
 var primaryFoundryEmbeddingsBackendUrl = '${primaryFoundryEndpoint}openai/deployments/${primaryFoundryEmbeddingModelName}/embeddings'
 
 var openAiPrivateDnsZoneName = 'privatelink.openai.azure.com'
@@ -877,7 +888,18 @@ module keyVault './modules/keyvault/keyvault.bicep' = {
 // processing (both APIs are exposed on the unified AI Services endpoint of the account).
 // Additional entries in `aiFoundryInstances` simply provide more regional Foundry resources that
 // can host LLM model deployments declared in `aiFoundryModelsConfig`.
-module foundry 'modules/foundry/foundry.bicep' = {
+module existingFoundry './apim-gateway-upgrade/services/foundry.bicep' = if (existingAiFoundry != null) {
+  name: 'existing-ai-foundry'
+  scope: resourceGroup(existingAiFoundry.?subscriptionId ?? subscription().subscriptionId, existingAiFoundry.?resourceGroupName ?? resourceGroup().name)
+  params: {
+    createNew: false
+    foundryName: existingAiFoundry.?name ?? ''
+    apimPrincipalId: apimManagedIdentity.outputs.managedIdentityPrincipalId
+    deployModels: false
+  }
+}
+
+module foundry 'modules/foundry/foundry.bicep' = if (existingAiFoundry == null) {
   name: 'ai-foundry'
   params: {
     aiServicesConfig: aiFoundryInstances
@@ -1163,11 +1185,11 @@ module apiCenterOnboarding './modules/apim/api-center-onboarding-all.bicep' = if
 }
 
 // Grant AI Foundry resources access to Key Vault (deployed after both Key Vault and Foundry)
-module keyVaultFoundryRbac './modules/keyvault/keyvault-rbac.bicep' = {
+module keyVaultFoundryRbac './modules/keyvault/keyvault-rbac.bicep' = if (existingAiFoundry == null) {
   name: 'key-vault-foundry-rbac'
   params: {
     keyVaultName: keyVault.outputs.keyVaultName
-    aiFoundryPrincipalIds: foundry.outputs.aiFoundryPrincipalIds
+    aiFoundryPrincipalIds: foundry!.outputs.aiFoundryPrincipalIds
   }
   dependsOn: [
     keyVault
@@ -1179,7 +1201,7 @@ output APIM_NAME string = apim.outputs.apimName
 output APIM_AOI_PATH string = apim.outputs.apimOpenaiApiPath
 output APIM_GATEWAY_URL string = apim.outputs.apimGatewayUrl
 output AZURE_RESOURCE_GROUP string = resourceGroup().name
-output AI_FOUNDRY_SERVICES array = foundry.outputs.extendedAIServicesConfig
+output AI_FOUNDRY_SERVICES array = existingAiFoundry != null ? existingFoundry!.outputs.extendedAIServicesConfig : foundry!.outputs.extendedAIServicesConfig
 output LLM_BACKEND_CONFIG array = llmBackendConfig
 output KEY_VAULT_NAME string = keyVault.outputs.keyVaultName
 output KEY_VAULT_URI string = keyVault.outputs.keyVaultUri

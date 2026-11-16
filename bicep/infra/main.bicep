@@ -429,6 +429,16 @@ param aiSearchInstances array = [
   // }
 ]
 
+@description('Reference an existing Foundry account without changing its account, projects, models, networking or connections. Only additive APIM inference RBAC is configured. Omit subscriptionId to use the deployment subscription.')
+param existingAiFoundry {
+  name: string
+  resourceGroupName: string
+  subscriptionId: string?
+}?
+
+@description('Complete backend registrations for an existing Foundry. Registers existing deployments in APIM only; it does not deploy models.')
+param existingLlmBackendConfig array = []
+
 @description('AI Foundry instances configuration array. The first element (index 0) is the **primary** Foundry resource. The primary Foundry powers the APIM AI Gateway content safety and PII processing capabilities (via the AI Services unified endpoint) AND can also host LLM model deployments. Add more entries to deploy additional Foundry resources in different regions for additional LLM capacity / regional routing. All entries can host LLM deployments declared in aiFoundryModelsConfig. Each entry may optionally set `networkInjectionEnabled: true|false` to opt the specific Foundry resource into (or out of) agent network injection (delegated to Microsoft.App/environments). Per-instance values only take effect when the global `foundryNetworkInjectionEnabled` flag is also true. Note: agent subnet is regional - only enable injection for instances in the same region as the VNet, and only when the full Foundry Standard Agent BYO setup (Storage + AI Search + Cosmos DB + capabilityHost) is in place.')
 param aiFoundryInstances array = [
   {
@@ -669,6 +679,8 @@ module resources './resources.bicep' = {
     aiSearchInstances: aiSearchInstances
     aiFoundryInstances: aiFoundryInstances
     aiFoundryModelsConfig: aiFoundryModelsConfig
+    existingAiFoundry: existingAiFoundry
+    existingLlmBackendConfig: existingLlmBackendConfig
     primaryFoundryEmbeddingModelName: primaryFoundryEmbeddingModelName
     entraTenantId: entraTenantId
     entraClientId: entraClientId
