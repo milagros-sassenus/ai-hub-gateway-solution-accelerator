@@ -16,6 +16,212 @@ Deploying the hub is a three-phase journey. This guide covers **Phase 1 (Plan)**
 
 > 💡 **Complete the [Deployment Decisions Checklist](#-deployment-decisions-checklist) first.** Every decision maps to a parameter in [`main.bicepparam`](../bicep/infra/main.bicepparam), so a completed checklist becomes your deployment configuration.
 
+### Existing VNet and Foundry without reprovisioning them
+
+The initial deployment can use a VNet and private DNS zones prepared separately
+(for example, with Azure CLI), while managing dedicated gateway subnets in Bicep:
+
+- Set `useExistingVnet = true`, `existingVnetRG`, and `vnetName`.
+- Set `manageExistingVnetSubnets = true` for StandardV2/PremiumV2. Provide names
+  and non-overlapping prefixes for APIM, private endpoints, and Logic App subnets.
+  The deployment manages these three subnets' properties and an APIM NSG, not
+  the parent VNet or its address space. Use new dedicated subnets; do not point
+  this option at subnets with externally managed delegations, NSGs or routes.
+  Subnet writes are serialized. Existing deployments default to reference-only.
+  With `enableUsageReporting = false`, only APIM and private endpoint subnets
+  are managed; the Logic App subnet and its dedicated NSG are omitted.
+- Create the DNS zones and VNet links before provisioning. Set `dnsZoneRG` and
+  optionally `dnsSubscriptionId`, or supply `existingPrivateDnsZones` resource
+  IDs. With `useExistingVnet = true`, the deployment does not create DNS zones
+  or VNet links. For the standard hub services, prepare
+  `privatelink.azure-api.net`, `privatelink.vaultcore.azure.net`,
+  `privatelink.servicebus.windows.net`, `privatelink.documents.azure.com`, and
+  the `privatelink.blob/file/table/queue.core.windows.net` zones (four zones).
+  Additional services require their respective zones.
+  With reporting disabled, Event Hubs, Cosmos DB and Storage zones are not
+  required and are not created in new-VNet mode.
+- Set `existingAiFoundry = { name: '<account>', resourceGroupName: '<rg>' }`.
+  An optional `subscriptionId` selects a different subscription; omitting it
+  uses the deployment subscription. Set `aiFoundryInstances = []` and
+  `aiFoundryModelsConfig = []` to make the intent explicit.
+- Supply `existingLlmBackendConfig` using the backend onboarding schema and
+  **existing deployment names**. These entries register routing in APIM only.
+  No Foundry accounts, projects, model deployments, network settings, private
+  endpoints, monitoring connections or Foundry-to-Key-Vault grants are
+  provisioned for the existing account. The deployment adds the APIM managed
+  identity's Cognitive Services User role at the existing account scope.
+  The deployer therefore needs role-assignment permissions there.
+- The existing Foundry endpoint is also used for PII/Content Safety. Validate
+  these capabilities separately. Its current network access is preserved;
+  referencing a public account does not make the backend connection private,
+  and deploying the hub in Brazil South does not relocate an East US 2 model.
+- For APIM v2 bootstrap, keep `apimV2PublicNetworkAccess = true` while creating
+  its private endpoint. After approval, DNS resolution and a private inference
+  request have passed, update it to `false` and verify public requests fail.
+
+Use the subscription selected by `az account set`; no login or subscription
+switch is performed by these templates. Direct Bicep infrastructure deployment
+does not publish the Logic App workflows; publish them separately. Private SCM
+publishing requires a connected machine.
+
+### Development without usage ingestion or reporting
+
+The [SFC dev parameters](../bicep/infra/apim-gateway-upgrade/main.parameters.dev.bicepparam)
+set `enableUsageReporting = false` and `createAppInsightsDashboards = false`.
+The reporting flag defaults to `true` in the initial deployment templates, so
+other configurations retain their existing behavior.
+
+Disabled resources include the usage Logic App and hosting plan, its managed
+identity/RBAC, Azure Monitor API connection, dedicated Application Insights,
+Storage account/file share, Event Hubs namespace/hubs, Cosmos DB account and
+containers, and their private endpoints. The usage subnet is not provisioned;
+its configured address range is reserved for a later phase.
+
+APIM, Key Vault, Foundry backend routing, PII anonymization/deanonymization, and
+basic gateway diagnostics in Application Insights/Log Analytics remain enabled.
+Event Hub loggers and their APIM sender role are omitted. The `ai-usage` and
+`pii-state-saving` fragments keep their stable names but contain explicitly
+disabled bodies, so API policies do not reference missing loggers.
+No Cosmos usage/cost history, PII-state audit or scheduled usage aggregation is
+available in this mode. Cosmos/Event Hub name outputs are empty by design.
+
+Use the dev parameter file explicitly for the infrastructure deployment.
+Do **not** run `azd up` or `azd deploy` for this profile:
+[azure.yaml](../azure.yaml) still declares the Logic App service for full
+environments and would attempt to publish it. Direct Bicep infrastructure
+deployment does not invoke that service. The standalone gateway-upgrade and
+supporting-services templates are separate entry points, not controlled by
+this initial-deployment flag.
+
+For a later reporting phase, set `enableUsageReporting = true`, prepare the
+additional DNS zones/links if using an existing VNet, provision infrastructure,
+then publish and validate the Logic App workflows separately. Disabling the
+flag is not a deletion mechanism for resources deployed previously.
+
+### Private dev entry through the existing Application Gateway
+
+The SFC dev profile reuses `agw-bancoagrario-lab` in `rg-bancoagrario-lab`
+(Brazil South), with private frontend `10.0.0.10` in `vnet-bancoagrario-lab`
+(`10.0.0.0/16`). It is a stopped **Standard_v2** gateway, not WAF_v2.
+Do not start it, change its SKU, replace its configuration, or alter existing
+listeners/routes as part of the hub deployment. WAF and gateway startup need
+separate approval; this profile does not yet implement the full WAF architecture.
+The existing apps, AKS ingress gateway, Front Door and corporate firewall are
+outside this deployment.
+
+#### 1. Prepare the network before deploying the hub
+
+[network-prerequisites.bicep](../bicep/infra/apim-gateway-upgrade/network-prerequisites.bicep)
+is a separate subscription-scope entry point. It creates the dev resource group,
+the AI Hub VNet (`10.223.2.0/24`), direct peering in both directions, and the APIM
+private DNS zone with links to both VNets. It reuses the existing
+`privatelink.vaultcore.azure.net` and `bancoagrario.local` zones in the gateway
+resource group, adding only links for the new hub VNet. Their current records
+and links are preserved. No new Key Vault DNS zone is needed.
+
+The prerequisite template does not deploy subnets, APIM, certificates, Key Vault,
+apps, Logic Apps or reporting. The subsequent hub deployment manages its two
+dedicated subnets in Bicep. It still creates its own hub Key Vault: reusing the
+lab vault for the listener certificate does not replace the hub's secret store.
+No existing Application Gateway or parent gateway VNet is redeployed.
+
+Use the same subscription as the dev deployment. Review address ranges, existing
+zones, resource ownership and permissions before applying. Peering is not
+transitive: apps in other networks need their own approved routing and DNS
+resolution. The deployer needs network/DNS write permissions in the laboratory
+resource group, resource creation permissions in the hub scope, and permission
+to assign the APIM identity's roles on the existing Foundry account and hub.
+
+These are **manual commands for a later approved deployment**, not commands
+executed by compilation or tests. From the repository root, review the network
+plan first:
+
+```powershell
+az deployment sub what-if --name sfc-dev-network --location brazilsouth --template-file .\bicep\infra\apim-gateway-upgrade\network-prerequisites.bicep --parameters resourceGroupName=rg-sfc-ai-landing-zone location=brazilsouth vnetName=vnet-sfc-aihub-dev-brs vnetAddressPrefix=10.223.2.0/24 gatewayResourceGroupName=rg-bancoagrario-lab gatewayVnetName=vnet-bancoagrario-lab internalDnsZoneName=bancoagrario.local
+```
+
+Only after explicit approval, execute the same command with `create` instead
+of `what-if`. Verify both peerings are `Connected`, DNS links are `Completed`,
+and the existing gateway/subnets/listeners were not changed. Inspect the plan
+again on reruns; never use complete deployment mode.
+
+Then review and, separately, approve the hub deployment:
+
+```powershell
+az deployment sub what-if --name sfc-aihub-dev --location brazilsouth --template-file .\bicep\infra\main.bicep --parameters .\bicep\infra\apim-gateway-upgrade\main.parameters.dev.bicepparam
+```
+
+The dev file points `dnsZoneRG` at `rg-bancoagrario-lab`, matching the prerequisite
+template. Keep these inputs aligned. A what-if against the hub before its network
+prerequisites exist may fail; offline compilation does not validate resource
+existence, Azure Policy, quota, RBAC or actual connectivity.
+
+#### 2. Prepare HTTPS without changing existing laboratory routes
+
+Use a **new** internal hostname, `aihub.bancoagrario.local`, rather than the
+existing `test.bancoagrario.local`. No public domain purchase is required.
+From a machine with private access to `kv-bancoagrario-lab1`, inspect the existing
+`agw-test-cert` certificate's SAN, validity, issuer and enabled state. Its name
+and listener reference do not prove that it is self-signed or covers AI Hub.
+If it does not cover the new hostname, create a separate self-signed dev
+certificate with that DNS SAN, server-auth usage and an exportable RSA private
+key, stored as a PFX-backed certificate in the same vault. Keep the existing
+certificate unchanged. Do not put a PFX, password or private key in the repository.
+
+Do not enable public access on the vault to bypass its current private-only
+network restriction. Generating/uploading the certificate requires a connected,
+authorized machine. The gateway's existing user-assigned identity must be able
+to read the new certificate's secret, with vault network access and a supported
+enabled certificate. Verify these permissions; do not assume the current
+listener proves access to a different secret. Reference the new certificate
+using a versionless Key Vault secret URI.
+
+After separate approval to modify the gateway, add these named objects through
+targeted gateway operations or the portal, preserving all existing objects.
+Do not deploy a partial `Microsoft.Network/applicationGateways` resource:
+its collections represent the full gateway configuration and can overwrite
+other laboratory routes. Review existing names and unused rule priorities first.
+
+| New object | Configuration |
+|---|---|
+| Certificate `aihub-dev-cert` | Verified existing certificate or new Key Vault secret reference |
+| Backend pool `aihub-apim` | Actual hub APIM gateway FQDN, `<apim-name>.azure-api.net`, not the AI Hub frontend hostname |
+| Probe `aihub-apim-health` | HTTPS, port 443, APIM gateway hostname, `/status-0123456789abcdef`, expect HTTP 200 |
+| HTTP settings `aihub-apim-https` | HTTPS 443, Host/SNI set to the APIM gateway hostname, probe above, timeout sized for inference |
+| Listener `aihub-private-https` | Existing private frontend `feip-private`, existing HTTPS port 443, host `aihub.bancoagrario.local`, certificate above, SNI enabled |
+| Rule `aihub-to-apim` | New unused priority, listener above to pool/settings above; preserve request paths |
+| Private DNS A record `aihub` | In `bancoagrario.local`, address `10.0.0.10`; add after the listener is ready |
+
+Use a hostname-specific listener, not a second catch-all listener. The frontend
+uses the dev certificate; the APIM backend uses its normal Azure TLS certificate.
+Do not upload the dev self-signed certificate as an APIM backend trust anchor.
+APIM's FQDN must resolve to its private endpoint from the gateway VNet. Peering
+alone does not provide DNS links. Confirm the APIM private endpoint connection
+is approved and the gateway can reach it on TCP 443.
+
+#### 3. Validate privately before closing public access
+
+After approval to start the shared gateway (which incurs charges), check backend
+health is `Healthy`. From an app/client network with private connectivity and DNS:
+
+1. Resolve `aihub.bancoagrario.local` to `10.0.0.10`.
+2. Trust the dev certificate's public certificate/issuer in the client trust
+   store. Never disable TLS/hostname validation or use `curl -k`.
+3. Call the APIM health path through the new hostname and perform authenticated
+   chat and embeddings requests using the actual APIM API routes and subscription
+   key. Test PII/Content Safety separately; a deployed model does not prove those
+   capabilities work.
+4. Confirm the existing `test.bancoagrario.local` listener and routes still work.
+5. Only after these checks and approval, set `apimV2PublicNetworkAccess = false`
+   in the dev parameter file, review the plan, apply it, then repeat the private
+   checks and verify requests over the public gateway endpoint are rejected.
+
+Foundry remains public in East US 2; this network preparation does not make
+the APIM-to-Foundry connection private or relocate inference to Brazil South.
+Private DNS records/links do not grant clients network access or certificate
+trust. Until the connected-machine certificate checks and gateway integration
+are complete, this is a prepared deployment path, not a verified live service.
+
 ---
 
 ## 📋 Table of Contents
