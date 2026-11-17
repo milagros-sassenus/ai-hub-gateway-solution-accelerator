@@ -71,6 +71,12 @@ endpoint. Other query parameters and the anonymized request body are unchanged.
 Legacy versioned routes retain their API-version behavior. See the
 [Azure OpenAI v1 API documentation](https://learn.microsoft.com/en-us/azure/foundry/openai/api-version-lifecycle).
 
+For legacy `/openai/deployments/{model}/...` requests, the fragment preserves
+the deployment-style path and `api-version`. Converting this path to v1 in the
+shared fragment removes the version before the legacy API policy restores the
+deployment-style path, causing backend 404 responses. `/models/...` requests
+continue to use `/openai/v1/...` without the dated query parameter.
+
 For an existing gateway, redeploy the updated `set-backend-authorization` fragment
 through the main infrastructure deployment or
 [backend onboarding](../bicep/infra/llm-backend-onboarding/README.md).

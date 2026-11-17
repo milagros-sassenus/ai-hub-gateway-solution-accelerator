@@ -285,6 +285,12 @@
                 }
                 string lowerPath = path.ToLowerInvariant();
 
+                // Deployment-style routes must retain their dated api-version.
+                if (lowerPath.StartsWith("deployments/", StringComparison.Ordinal))
+                {
+                    return string.Format("openai/{0}", path);
+                }
+
                 // If path contains "responses", use /openai/v1/{path}
                 if (lowerPath.Contains("responses"))
                 {

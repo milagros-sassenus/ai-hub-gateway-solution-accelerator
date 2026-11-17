@@ -144,6 +144,20 @@ public static class FoundryRoutingRegression
             Check(!RemovesApiVersion(template), "Legacy API version would be removed");
             cases++;
         }
+        foreach (var operation in new[] { "chat/completions", "embeddings" })
+        {
+            var path = "deployments/test-model/" + operation;
+            var expected = "openai/" + path;
+            foreach (var currentPath in new[] {
+                "/" + expected, "/openai/v1/" + path, "/models/" + operation
+            })
+            {
+                var actual = Rewrite("openai", "/" + expected, currentPath);
+                Check(actual == expected, "Legacy deployment path changed: " + actual);
+                Check(!RemovesApiVersion(actual), "Legacy api-version would be removed");
+                cases++;
+            }
+        }
         Console.WriteLine(cases + " routing cases passed");
     }
 }
@@ -161,7 +175,7 @@ public static class FoundryRoutingRegression
             capture_output=True, text=True, timeout=60,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("16 routing cases passed", result.stdout)
+        self.assertIn("22 routing cases passed", result.stdout)
 
 
 if __name__ == "__main__":
