@@ -28,6 +28,7 @@ param apimIdentityName string = ''
 
 @description('Name of the Usage Logic App managed identity. Leave blank to use default naming conventions.')
 param usageLogicAppIdentityName string = ''
+param cosmosIdentityName string = ''
 
 @description('Name of the API Management service. Leave blank to use default naming conventions.')
 param apimServiceName string = ''
@@ -101,6 +102,9 @@ param useExistingVnet bool = false
 
 @description('Provision dedicated StandardV2/PremiumV2 gateway, private endpoint and Logic App subnets in an existing VNet. These subnet properties are managed by this deployment.')
 param manageExistingVnetSubnets bool = false
+param managePrivateEndpointSubnet bool = true
+param reservedSubnets { name: string, addressPrefix: string, networkSecurityGroupId: string? }[] = []
+param apimFirewallIp string = ''
 
 @description('Resource group containing the existing VNet (only used when useExistingVnet is true).')
 param existingVnetRG string = ''
@@ -823,6 +827,10 @@ module existingVnetSubnets './modules/networking/existing-vnet-subnets.bicep' = 
     functionAppSubnetName: !empty(functionAppSubnetName) ? functionAppSubnetName : 'snet-functionapp'
     functionAppSubnetPrefix: functionAppSubnetPrefix
     enableFunctionAppSubnet: enableUsageReporting
+    managePrivateEndpointSubnet: managePrivateEndpointSubnet
+    reservedSubnets: reservedSubnets
+    apimFirewallIp: apimFirewallIp
+    apimRouteTableName: !empty(apimRouteTableName) ? apimRouteTableName : 'rt-apim-${resourceToken}'
     tags: tags
   }
 }
@@ -1097,6 +1105,7 @@ module cosmosDb './modules/cosmos-db/cosmos-db.bicep' = if (enableUsageReporting
   name: 'cosmos-db'
   params: {
     accountName: !empty(cosmosDbAccountName) ? cosmosDbAccountName : '${abbrs.documentDBDatabaseAccounts}${resourceToken}'
+    cosmosIdentityName: cosmosIdentityName
     location: location
     tags: tags
     vNetName: useExistingVnet ? vnetExisting.outputs.vnetName : vnet.outputs.vnetName

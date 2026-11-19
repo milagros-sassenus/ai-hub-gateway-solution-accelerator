@@ -709,7 +709,7 @@ resource apiopenAiApiEntraNamedValue 'Microsoft.ApiManagement/service/namedValue
   properties: {
     displayName: openAiApiEntraNamedValue
     secret: false
-    value: entraAuth
+    value: entraAuth ? 'true' : 'false'
   }
 }
 resource apiopenAiApiClientNamedValue 'Microsoft.ApiManagement/service/namedValues@2022-08-01' = {

@@ -32,6 +32,9 @@ param apimIdentityName string = ''
 @description('Name of the Usage Logic App managed identity. Leave blank to use default naming conventions.')
 param usageLogicAppIdentityName string = ''
 
+@description('Optional user-assigned identity attached to Cosmos DB. No data-plane roles are granted to this identity.')
+param cosmosIdentityName string = ''
+
 @description('Name of the API Management service. Leave blank to use default naming conventions.')
 param apimServiceName string = ''
 
@@ -104,6 +107,15 @@ param useExistingVnet bool = false
 
 @description('Provision dedicated StandardV2/PremiumV2 gateway, private endpoint and Logic App subnets in an existing VNet. These subnet properties are managed by this deployment; existing defaults only reference subnets.')
 param manageExistingVnetSubnets bool = false
+
+@description('Create/update the private endpoint subnet when managing existing VNet subnets. Set false for a pre-existing shared subnet to preserve its properties.')
+param managePrivateEndpointSubnet bool = true
+
+@description('Additional dedicated subnet reservations in an existing managed VNet. These do not deploy services or enable Foundry network injection.')
+param reservedSubnets { name: string, addressPrefix: string, networkSecurityGroupId: string? }[] = []
+
+@description('Optional reachable firewall IPv4 address for an APIM subnet default route. Requires useExistingVnet and manageExistingVnetSubnets. Verify effective routing for the selected APIM tier.')
+param apimFirewallIp string = ''
 
 @description('Resource group containing the existing VNet (only used when useExistingVnet is true).')
 param existingVnetRG string = ''
@@ -596,6 +608,7 @@ module resources './resources.bicep' = {
     tags: tags
     apimIdentityName: apimIdentityName
     usageLogicAppIdentityName: usageLogicAppIdentityName
+    cosmosIdentityName: cosmosIdentityName
     apimServiceName: apimServiceName
     logAnalyticsName: logAnalyticsName
     useExistingLogAnalytics: useExistingLogAnalytics
@@ -619,6 +632,9 @@ module resources './resources.bicep' = {
     vnetName: vnetName
     useExistingVnet: useExistingVnet
     manageExistingVnetSubnets: manageExistingVnetSubnets
+    managePrivateEndpointSubnet: managePrivateEndpointSubnet
+    reservedSubnets: reservedSubnets
+    apimFirewallIp: apimFirewallIp
     existingVnetRG: existingVnetRG
     apimSubnetName: apimSubnetName
     privateEndpointSubnetName: privateEndpointSubnetName

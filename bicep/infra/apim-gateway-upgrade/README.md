@@ -1,5 +1,102 @@
 # APIM Gateway Upgrade (PREVIEW)
 
+## Production landing-zone parameters (not an upgrade)
+
+[main.parameters.prod.bicepparam](./main.parameters.prod.bicepparam) targets
+the subscription-scoped [../main.bicep](../main.bicep), **not** the upgrade
+template in this folder. It enables Application Insights dashboards and usage
+reporting (Logic App, Storage, Cosmos DB and Event Hub). This increases deployed
+resources and cost compared with the development parameter file.
+
+Customer values are retained: names that differed from the main template are
+mapped to its parameter names; individual DNS IDs are kept as local variables
+and passed through `existingPrivateDnsZones`. The invalid Storage label
+`db-storage-sfc-ia-eu-prod` is recorded beside its approved replacement,
+`stsfciaeuprod`. Global name availability has not been checked.
+
+The customer notes supply the explicit APIM name, production dashboard and
+private endpoint names, capacities, and the Azure Files DNS ID. Their APIM DNS
+zone is in subscription `05a0e57b-2fd4-4141-bbac-b2192658c148`, RG
+`rg-hub-dns-centralus`; it supersedes the earlier APIM zone reference.
+`useExistingPrivateDnsZones` is not a parameter of the main template: the
+non-empty IDs in `existingPrivateDnsZones` already select those existing zones.
+The `using '../main.bicep'` path is intentional for this file's location.
+
+Network behavior:
+
+- The VNet must already exist in `existingVnetRG`, in the same subscription and
+  region as APIM. Do not use the development network-prerequisite template for
+  the customer network without reviewing its peering and DNS-link changes.
+- `manageExistingVnetSubnets = true` manages the dedicated APIM and Logic App
+  subnets. The template's historical `functionAppSubnet*` parameters select
+  the **Logic App** integration subnet, delegated to `Microsoft.Web/serverFarms`.
+- `reservedSubnets` creates the separate AGW, Foundry and future Function
+  subnets, even when their services are disabled. They have no delegations.
+  This does not deploy Application Gateway or enable Foundry network injection.
+  Only supply dedicated subnet reservations: their properties are managed by
+  this deployment.
+- Customer: keep `managePrivateEndpointSubnet = false` to reference the shared
+  `snet-sfc-ia-iaas` subnet **without updating its properties**.
+- `apimFirewallIp` attaches an APIM route table with `0.0.0.0/0` to a
+  `VirtualAppliance` and an `ApiManagement` management exception to `Internet`.
+  More-specific system VNet routes remain direct; this does not add a route
+  for intravnet traffic. The firewall must already exist and be reachable
+  through the network/peerings, allow required dependencies and provide return
+  routing/SNAT. No firewall, peering or firewall policy is created.
+  This option currently applies only to managed subnets in an existing VNet.
+  **A subnet UDR is not proof that all Standard v2 traffic traverses the
+  firewall**: validate effective routing and firewall logs for public and
+  private backends. See [v2 outbound integration requirements](https://learn.microsoft.com/azure/api-management/integrate-vnet-outbound).
+
+Before any deployment:
+
+1. Verify the supplied Azure Files DNS zone ID and the updated APIM DNS zone
+   exist and are accessible. Files is in the hub-networking subscription/RG,
+   **not** the Blob zone's subscription/RG; it is no longer inferred from Blob.
+2. Verify all supplied cross-subscription zone IDs, permissions, DNS links or
+   forwarding. The queue zone's RG (`rg-sfc-prod-networking`) differs from the
+   Blob/Monitor RG (`rg-sfc-eu-prod-networking`); it was intentionally preserved.
+   `dnsZoneRG` remains as the original legacy fallback, while explicit IDs take
+   precedence. Monitor's zone is retained but AMPLS remains disabled.
+3. The active customer configuration sets `existingAiFoundry = null` and
+   provisions `aif-sfc-ia-eu-prod`, project `proj-clasificaciondemandas-prod`,
+   `gpt-6-luna` version `2026-09-22` (GlobalStandard, capacity 120), and
+   `text-embedding-3-large` version `1` (GlobalStandard, capacity 150) in East US.
+   Model versions, retirement dates and capacities are transcribed from the
+   customer notes, not verified against the Azure catalog or available quota.
+   Validate these before deploying. The model name also becomes its deployment
+   name; distinct deployment aliases are not configured in this parameter file.
+4. The earlier Foundry configuration is preserved behind the local
+   `useExistingLabFoundry` variable (default `false`). Setting it to `true`
+   selects the original existing account/backend registrations and small
+   embedding model without provisioning the customer's Foundry/models.
+   This is **not** a complete lab profile: also adapt network/DNS/subscription
+   references and verify the recorded existing Foundry account name (not a
+   project name). Names and environment token now follow the customer's notes;
+   review what-if carefully before applying to any existing deployment.
+5. Review the deployment identity's permissions to publish Logic App workflows
+   from a network that can resolve/reach the private Storage endpoints.
+   The optional `cosmosIdentityName` creates and attaches an identity to the
+   Cosmos account; it does not grant data roles. The Standard Logic App uses
+   its system-assigned identity for managed connections and a Cosmos connection
+   string for its built-in Cosmos connector.
+6. Select the intended Azure CLI subscription, compile locally and then review
+   a subscription-scoped what-if before approving a deployment:
+
+   ```powershell
+   az bicep build-params --file bicep\infra\apim-gateway-upgrade\main.parameters.prod.bicepparam --outfile "$env:TEMP\citadel-prod.parameters.json"
+   az deployment sub what-if --location eastus --parameters bicep\infra\apim-gateway-upgrade\main.parameters.prod.bicepparam
+   ```
+
+Compilation validates template wiring, not Azure resource existence, routing,
+RBAC, DNS resolution, model availability or runtime telemetry.
+
+After provisioning, publish [the Standard Logic App workflows](../../../src/usage-ingestion-logicapp)
+separately with Azure CLI zip deployment, excluding local settings. Verify the
+complete inference-to-telemetry-to-Cosmos flow with real token metrics; a
+successful workflow run with no records is not sufficient. Standard/WS1 runtime,
+load/SLO and recovery acceptance must be validated in the target environment.
+
 ## Decision / SystemOne release upgrade
 
 For release [1.1.0](../../../releases/1.1.0.md), use a **two-stage** upgrade of an

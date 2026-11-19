@@ -21,7 +21,7 @@ resource sqlRoleAssignment 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignm
   parent: cosmosDbAccount
   properties: {
     principalId: principalId
-    roleDefinitionId: '/${cosmosDbAccount.id}/sqlRoleDefinitions/${docDbAccNativeContributorRoleDefinitionId}'
+    roleDefinitionId: '${cosmosDbAccount.id}/sqlRoleDefinitions/${docDbAccNativeContributorRoleDefinitionId}'
     scope: cosmosDbAccount.id
   }
 }

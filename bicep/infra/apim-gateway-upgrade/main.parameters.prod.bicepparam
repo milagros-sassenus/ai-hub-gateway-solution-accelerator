@@ -6,43 +6,49 @@ using '../main.bicep'
 // ============================================================================
 // BASIC PARAMETERS
 // ============================================================================
-param environmentName = 'rg-sfc-ia-eu-prod'
+param environmentName = 'sfc-aihub-prod'
 param location = 'eastus'
 param apicLocation = 'eastus'
 param resourceGroupName = 'rg-sfc-ia-eu-prod'
 param tags = {
-  Environment: 'Development'
+  Environment: 'Production'
   Workload: 'AI Hub'
+  SecurityControl: 'Ignore'
 }
 
 // ============================================================================
 // RESOURCE NAMES
 // ============================================================================
+param apimServiceName = 'apim-sfc-ia-eu-prod'
 param logAnalyticsName = 'law-sfc-ia-eu-prod'
-param apimApplicationInsightsName = 'appi-sfc--ia-eu-prod'
-param apimApplicationInsightsDashboardName = 'dashboard-apim-sfc-dev-brs'
-param foundryApplicationInsightsDashboardName = 'dashboard-foundry-sfc-dev-brs'
+param apimApplicationInsightsName = 'appi-sfc-ia-eu-prod'
+param apimApplicationInsightsDashboardName = 'dsh-appi-sfc-ai-eu-prod'
+param funcApplicationInsightsDashboardName = 'dsh-func-sfc-ai-eu-prod'
+param foundryApplicationInsightsDashboardName = 'dsh-foundry-sfc-ai-eu-prod'
 param keyVaultName = 'kv-sfc-ia-eu-prod'
-param foundryName = 'aif-sfc-ia-eu-prod'
-param logicAppName = 'logic-sfc-ia-eu-prod' 
-param storageAccount = 'db-storage-sfc-ia-eu-prod'
+param aiFoundryResourceName = 'aif-sfc-ia-eu-prod'
+param usageProcessingLogicAppName = 'logic-sfc-ia-eu-prod'
+// Original customer label: db-storage-sfc-ia-eu-prod (not a valid Azure Storage account name).
+param storageAccountName = 'stsfciaeuprod'
 
 // ============================================================================
 // MANAGED IDENTITY NAMES
 // ============================================================================
 param apimIdentityName = 'id-sfc-ia-eu-apim-prod'
 param cosmosIdentityName = 'id-sfc-ia-eu-cosmos-prod'
-param logicAppIdentityName = 'id-sfc-ia-eu-logic-prod'
+param usageLogicAppIdentityName = 'id-sfc-ia-eu-logic-prod'
 
 
 // ============================================================================
 // NETWORKING
 // ============================================================================
-// Deploy network-prerequisites.bicep before provisioning the hub.
+// The VNet must already exist. See README.md for customer/lab prerequisites.
 param vnetName = 'vnet-sfc-ia-eu1'
 param useExistingVnet = true
 param existingVnetRG = 'rg-sfc-eu-ia-networking'
 param manageExistingVnetSubnets = true
+// Customer: shared subnet already exists. Lab: set true to create it.
+param managePrivateEndpointSubnet = false
 param vnetAddressPrefix = '10.189.0.0/16'
 
 param apimSubnetName = 'snet-sfc-ia-eu-prod-apim'
@@ -50,47 +56,84 @@ param apimSubnetPrefix = '10.189.2.0/26'
 param privateEndpointSubnetName = 'snet-sfc-ia-iaas'
 param privateEndpointSubnetPrefix = '10.189.0.0/26'
 
-param agwSubnetName = 'snet-sfc-ia-eu-prod-agw'
-param agwSubnetPrefix = '10.189.2.64/26'
+var agwSubnetName = 'snet-sfc-ia-eu-prod-agw'
+var agwSubnetPrefix = '10.189.2.64/26'
 
-param foundrySubnetName = 'snet-sfc-ia-eu-prod-aif'
-param foundrySubnetPrefix = '10.189.3.0/24'
+var foundrySubnetName = 'snet-sfc-ia-eu-prod-aif'
+var foundrySubnetPrefix = '10.189.3.0/24'
 
-param logicSubnetName = 'snet-sfc-ia-eu-prod-logic'
-param logicSubnetPrefix = '10.189.2.128/27'
+var logicSubnetName = 'snet-sfc-ia-eu-prod-logic'
+var logicSubnetPrefix = '10.189.2.128/27'
 
-// Reserved for a later reporting phase; not provisioned while enableUsageReporting is false.
-param functionAppSubnetName = 'snet-sfc-ia-eu-prod-func'
-param functionAppSubnetPrefix = '10.189.4.0/24'
+// Existing template names functionAppSubnet* represent the active Logic App subnet.
+var reservedFunctionAppSubnetName = 'snet-sfc-ia-eu-prod-func'
+var reservedFunctionAppSubnetPrefix = '10.189.4.0/24'
+param functionAppSubnetName = logicSubnetName
+param functionAppSubnetPrefix = logicSubnetPrefix
+param reservedSubnets = [
+  { name: agwSubnetName, addressPrefix: agwSubnetPrefix }
+  { name: foundrySubnetName, addressPrefix: foundrySubnetPrefix }
+  { name: reservedFunctionAppSubnetName, addressPrefix: reservedFunctionAppSubnetPrefix }
+]
+
+param storageBlobPrivateEndpointName = 'pe-st-blob-sfc-ia-eu-prod'
+param storageFilePrivateEndpointName = 'pe-st-file-sfc-ia-eu-prod'
+param storageTablePrivateEndpointName = 'pe-st-table-sfc-ia-eu-prod'
+param storageQueuePrivateEndpointName = 'pe-st-queue-sfc-ia-eu-prod'
+param cosmosDbPrivateEndpointName = 'pe-cosmos-sfc-ia-eu-prod'
+param eventHubPrivateEndpointName = 'pe-ehub-sfc-ia-eu-prod'
+param apimV2PrivateEndpointName = 'pe-apim-sfc-ia-eu-prod'
+param keyVaultPrivateEndpointName = 'pe-kv-sfc-ia-eu-prod'
+// Retained for when logicAppUsePrivateEndpoint is enabled.
+param logicAppPrivateEndpointName = 'pe-logic-sfc-ia-eu-prod'
 
 // Private DNS VNet links are managed separately from this deployment.
 // An empty subscription ID uses the subscription selected in Azure CLI.
 param dnsZoneRG = 'rg-bancoagrario-lab'
-param dnsSubscriptionId = '/subscriptions/0969cbf2-bc92-4049-9912-768db3a13b00/resourceGroups/rg-sfc-eu-hub-networking/providers/Microsoft.Network/privateDnsZones/privatelink.openai.azure.com'
-param dnscognitiveServicesId = '/subscriptions/0969cbf2-bc92-4049-9912-768db3a13b00/resourceGroups/rg-sfc-eu-hub-networking/providers/Microsoft.Network/privateDnsZones/privatelink.cognitiveservices.azure.com'
-param dnsiaServicesId = '/subscriptions/0969cbf2-bc92-4049-9912-768db3a13b00/resourceGroups/rg-sfc-eu-hub-networking/providers/Microsoft.Network/privateDnsZones/privatelink.services.ai.azure.com'
-param dnskeyVaultId = '/subscriptions/b1f1766a-87af-4e43-a661-b180027e7361/resourceGroups/rg-sfc-eu-ia-networking/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net'
-param dnsmonitorId = '/subscriptions/ec7e00be-f46d-43ad-98fe-9d7a70b1ba1c/resourceGroups/rg-sfc-eu-prod-networking/providers/Microsoft.Network/privateDnsZones/privatelink.monitor.azure.com'
-param dnsserviceBusId = '/subscriptions/0969cbf2-bc92-4049-9912-768db3a13b00/resourceGroups/rg-sfc-eu-hub-networking/providers/Microsoft.Network/privateDnsZones/privatelink.servicebus.windows.net'
-param dnscosmosDbId = '/subscriptions/0969cbf2-bc92-4049-9912-768db3a13b00/resourceGroups/rg-sfc-eu-hub-networking/providers/Microsoft.Network/privateDnsZones/privatelink.documents.azure.com'
-param dnsStorageAccount = '/subscriptions/ec7e00be-f46d-43ad-98fe-9d7a70b1ba1c/resourceGroups/rg-sfc-eu-prod-networking/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net' 
-param dnsAzureAPI = '/subscriptions/0969cbf2-bc92-4049-9912-768db3a13b00/resourceGroups/rg-sfc-eu-hub-networking/providers/Microsoft.Network/privateDnsZones/privatelink.azure-api.net'
-param dnsTableId = '/subscriptions/b1f1766a-87af-4e43-a661-b180027e7361/resourceGroups/rg-sfc-eu-ia-networking/providers/Microsoft.Network/privateDnsZones/privatelink.table.core.windows.net'
-param dnsqueueID = '/subscriptions/ec7e00be-f46d-43ad-98fe-9d7a70b1ba1c/resourceGroups/rg-sfc-prod-networking/providers/Microsoft.Network/privateDnsZones/privatelink.queue.core.windows.net'
+param dnsSubscriptionId = ''
+var dnsOpenAiId = '/subscriptions/0969cbf2-bc92-4049-9912-768db3a13b00/resourceGroups/rg-sfc-eu-hub-networking/providers/Microsoft.Network/privateDnsZones/privatelink.openai.azure.com'
+var dnscognitiveServicesId = '/subscriptions/0969cbf2-bc92-4049-9912-768db3a13b00/resourceGroups/rg-sfc-eu-hub-networking/providers/Microsoft.Network/privateDnsZones/privatelink.cognitiveservices.azure.com'
+var dnsiaServicesId = '/subscriptions/0969cbf2-bc92-4049-9912-768db3a13b00/resourceGroups/rg-sfc-eu-hub-networking/providers/Microsoft.Network/privateDnsZones/privatelink.services.ai.azure.com'
+var dnskeyVaultId = '/subscriptions/b1f1766a-87af-4e43-a661-b180027e7361/resourceGroups/rg-sfc-eu-ia-networking/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net'
+var dnsmonitorId = '/subscriptions/ec7e00be-f46d-43ad-98fe-9d7a70b1ba1c/resourceGroups/rg-sfc-eu-prod-networking/providers/Microsoft.Network/privateDnsZones/privatelink.monitor.azure.com'
+var dnsserviceBusId = '/subscriptions/0969cbf2-bc92-4049-9912-768db3a13b00/resourceGroups/rg-sfc-eu-hub-networking/providers/Microsoft.Network/privateDnsZones/privatelink.servicebus.windows.net'
+var dnscosmosDbId = '/subscriptions/0969cbf2-bc92-4049-9912-768db3a13b00/resourceGroups/rg-sfc-eu-hub-networking/providers/Microsoft.Network/privateDnsZones/privatelink.documents.azure.com'
+var dnsStorageAccount = '/subscriptions/ec7e00be-f46d-43ad-98fe-9d7a70b1ba1c/resourceGroups/rg-sfc-eu-prod-networking/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net'
+var dnsStorageFileId = '/subscriptions/0969cbf2-bc92-4049-9912-768db3a13b00/resourceGroups/rg-sfc-eu-hub-networking/providers/Microsoft.Network/privateDnsZones/privatelink.file.core.windows.net'
+var dnsAzureAPI = '/subscriptions/05a0e57b-2fd4-4141-bbac-b2192658c148/resourceGroups/rg-hub-dns-centralus/providers/Microsoft.Network/privateDnsZones/privatelink.azure-api.net'
+var dnsTableId = '/subscriptions/b1f1766a-87af-4e43-a661-b180027e7361/resourceGroups/rg-sfc-eu-ia-networking/providers/Microsoft.Network/privateDnsZones/privatelink.table.core.windows.net'
+var dnsqueueID = '/subscriptions/ec7e00be-f46d-43ad-98fe-9d7a70b1ba1c/resourceGroups/rg-sfc-prod-networking/providers/Microsoft.Network/privateDnsZones/privatelink.queue.core.windows.net'
+param existingPrivateDnsZones = {
+  openai: dnsOpenAiId
+  cognitiveServices: dnscognitiveServicesId
+  aiServices: dnsiaServicesId
+  keyVault: dnskeyVaultId
+  monitor: dnsmonitorId
+  eventHub: dnsserviceBusId
+  cosmosDb: dnscosmosDbId
+  storageBlob: dnsStorageAccount
+  storageFile: dnsStorageFileId
+  apimGateway: dnsAzureAPI
+  storageTable: dnsTableId
+  storageQueue: dnsqueueID
+}
 
 param apimNetworkType = 'External'
 param apimV2UsePrivateEndpoint = true
 param apimV2PublicNetworkAccess = true
+param logicAppUsePrivateEndpoint = false
+param logicAppPublicNetworkAccess = true
+param aiFoundryExternalNetworkAccess = 'Disabled'
 param keyVaultExternalNetworkAccess = 'Disabled'
 param foundryNetworkInjectionEnabled = false
-param EventHubName = 'ehub-sfc-ia-eu-prod'
-param CosmosDBName = 'cosmos-sfc-ia-eu-prod'
+param eventHubNamespaceName = 'ehub-sfc-ia-eu-prod'
+param cosmosDbAccountName = 'cosmos-sfc-ia-eu-prod'
 
 // ============================================================================
 // FEATURES
 // ============================================================================
-param enableUsageReporting = false
-param createAppInsightsDashboards = false
+param enableUsageReporting = true
+param createAppInsightsDashboards = true
 param enableAIModelInference = true
 param enableDocumentIntelligence = false
 param enableAzureAISearch = false
@@ -106,20 +149,53 @@ param enableUnifiedAiApi = true
 // ============================================================================
 param apimSku = 'StandardV2'
 param apimSkuUnits = 1
+param eventHubCapacityUnits = 1
+param cosmosDbRUs = 400
+param logicAppsSkuCapacityUnits = 1
 
 // ============================================================================
 // MICROSOFT FOUNDRY
 // ============================================================================
-param existingAiFoundry = {
+// This selects only the Foundry alternative, not a complete lab network profile.
+var useExistingLabFoundry = false
+var existingLabFoundry = {
   name: 'proj-clasificaciondemandas-prod'
   resourceGroupName: 'rg-msassenus-1063'
 }
-param aiFoundryInstances = []
-param aiFoundryModelsConfig = []
-param primaryFoundryEmbeddingModelName = 'text-embedding-3-small'
+param existingAiFoundry = useExistingLabFoundry ? existingLabFoundry : null
+param aiFoundryInstances = useExistingLabFoundry ? [] : [
+  {
+    name: 'aif-sfc-ia-eu-prod'
+    location: 'eastus'
+    customSubDomainName: 'aif-sfc-ia-eu-prod'
+    defaultProjectName: 'proj-clasificaciondemandas-prod'
+  }
+]
+// Catalog model names also become deployment names; distinct aliases are not configured here.
+param aiFoundryModelsConfig = useExistingLabFoundry ? [] : [
+  {
+    name: 'gpt-6-luna'
+    publisher: 'OpenAI'
+    version: '2026-09-22'
+    sku: 'GlobalStandard'
+    capacity: 120
+    retirementDate: '2028-03-10'
+    aiserviceIndex: 0
+  }
+  {
+    name: 'text-embedding-3-large'
+    publisher: 'OpenAI'
+    version: '1'
+    sku: 'GlobalStandard'
+    capacity: 150
+    retirementDate: '2028-02-08'
+    aiserviceIndex: 0
+  }
+]
+param primaryFoundryEmbeddingModelName = useExistingLabFoundry ? 'text-embedding-3-small' : 'text-embedding-3-large'
 
-// These deployments already exist in East US 2; only APIM registrations are created.
-param existingLlmBackendConfig = [
+// Preserved lab alternative: existing East US 2 deployments, registered in APIM only.
+param existingLlmBackendConfig = useExistingLabFoundry ? [
   {
     backendId: 'sfc-existing-foundry'
     backendType: 'ai-foundry'
@@ -146,10 +222,10 @@ param existingLlmBackendConfig = [
     priority: 1
     weight: 100
   }
-]
+] : []
 
 // ============================================================================
-// MICROSOFT FOUNDRY
+// FIREWALL
 // ============================================================================
 // dentro de la misma vnet no pasa x el firewall!
-paramIpFirewall= '10.182.0.6'
+param apimFirewallIp = '10.182.0.6'

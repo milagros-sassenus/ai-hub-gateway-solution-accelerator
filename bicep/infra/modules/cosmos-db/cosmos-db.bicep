@@ -8,6 +8,7 @@ param location string = resourceGroup().location
 param primaryRegion string = location
 
 param tags object = {}
+param cosmosIdentityName string = ''
 
 @allowed([
   'Eventual'
@@ -118,11 +119,23 @@ resource subnet 'Microsoft.Network/virtualNetworks/subnets@2022-01-01' existing 
   parent: vnet
 }
 
+resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2018-11-30' = if (!empty(cosmosIdentityName)) {
+  name: cosmosIdentityName
+  location: location
+  tags: tags
+}
+
 resource account 'Microsoft.DocumentDB/databaseAccounts@2024-02-15-preview' = {
   name: toLower(accountName)
   location: location
   tags: union(tags, { 'azd-service-name': accountName })
   kind: 'GlobalDocumentDB'
+  identity: !empty(cosmosIdentityName) ? {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${managedIdentity!.id}': {}
+    }
+  } : null
   properties: {
     consistencyPolicy: consistencyPolicy[defaultConsistencyLevel]
     locations: locations

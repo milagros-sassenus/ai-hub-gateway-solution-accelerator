@@ -30,8 +30,8 @@ param dnsZoneResourceId string = ''
 param dotnetFrameworkVersion string = 'v6.0'
 
 var docDbAccNativeContributorRoleDefinitionId = '00000000-0000-0000-0000-000000000002'
-var eventHubsDataOwnerRoleDefinitionId = resourceId('Microsoft.Authorization/roleDefinitions', 'f526a384-b230-433a-b45c-95f59c4a2dec')
-var azureMonitorLogsRoleDefinitionId = resourceId('Microsoft.Authorization/roleDefinitions', '43d0d8ad-25c7-4714-9337-8ba259a9fe05')
+var eventHubsDataOwnerRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'f526a384-b230-433a-b45c-95f59c4a2dec')
+var azureMonitorLogsRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '43d0d8ad-25c7-4714-9337-8ba259a9fe05')
 
 param eventHubNamespaceName string
 param eventHubName string
@@ -89,6 +89,7 @@ resource logicApp 'Microsoft.Web/sites@2024-04-01' = {
   }
   properties: {
     enabled: true
+    httpsOnly: true
     serverFarmId: hostingPlan.id
     publicNetworkAccess: logicAppPublicNetworkAccess ? 'Enabled' : 'Disabled'
     reserved: isReserved       
@@ -191,7 +192,7 @@ resource sqlRoleAssignment 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignm
   parent: cosmosDbAccount
   properties:{
     principalId: logicApp.identity.principalId
-    roleDefinitionId: '/${cosmosDbAccount.id}/sqlRoleDefinitions/${docDbAccNativeContributorRoleDefinitionId}'
+    roleDefinitionId: '${cosmosDbAccount.id}/sqlRoleDefinitions/${docDbAccNativeContributorRoleDefinitionId}'
     scope: cosmosDbAccount.id
   }
 }

@@ -37,7 +37,7 @@ resource appInsightsScopedResource 'Microsoft.Insights/privateLinkScopes/scopedR
 }
 
 module applicationInsightsDashboard 'applicationinsights-dashboard.bicep' = if(createDashboard) {
-  name: 'application-insights-dashboard'
+  name: 'dashboard-${uniqueString(dashboardName)}'
   params: {
     name: dashboardName
     location: location
